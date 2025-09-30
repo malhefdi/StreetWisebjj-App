@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { LIBRARIES } from "./library";
+import LibraryPanel from "./components/LibraryPanel";
 
 // Modern Dojo visual pass + Add/Remove Slice + Report shows Next-class per step
 // Tailwind-based UI; no drag-and-drop (uses arrow buttons for ordering)
@@ -175,7 +177,7 @@ export default function LessonPlanBuilder() {
   const [studentId, setStudentId] = useState<string>("s1");
   const [editingStudent, setEditingStudent] = useState(false);
   const [theme, setTheme] = useState<"auto" | "light" | "dark">("light");
-  const [tab, setTab] = useState<"coach" | "report" | "tags">("coach");
+const [tab, setTab] = useState<"coach" | "report" | "library" | "tags">("coach");
   const [layout, setLayout] = useState<"stacked" | "columns">("stacked");
 
   useEffect(() => {
@@ -341,6 +343,7 @@ export default function LessonPlanBuilder() {
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button className={`px-3 py-1.5 rounded-xl border ${tab === "coach" ? "bg-white" : ""}`} onClick={() => setTab("coach")}>Coach Mode</button>
         <button className={`px-3 py-1.5 rounded-xl border ${tab === "report" ? "bg-white" : ""}`} onClick={() => setTab("report")}>Report</button>
+        <button className={`px-3 py-1.5 rounded-xl border ${tab === "library" ? "bg-white" : ""}`} onClick={() => setTab("library")}>Library</button>
         <button className={`px-3 py-1.5 rounded-xl border ${tab === "tags" ? "bg-white" : ""}`} onClick={() => setTab("tags")}>Tags</button>
         <div className="ml-2 flex items-center gap-1 text-xs">
           <span className="opacity-70">Layout:</span>
@@ -478,6 +481,43 @@ export default function LessonPlanBuilder() {
           </div>
         </div>
       )}
+      {/* Library */}
+{tab === "library" && (
+  <LibraryPanel
+    lessonsByCourse={LIBRARIES}
+    onAdd={(libraryLesson) => {
+      const uidLocal = () => Math.random().toString(36).slice(2, 10);
+
+      // Clone with fresh IDs so React keys are unique
+      const cloned = {
+        ...libraryLesson,
+        id: `lesson-${uidLocal()}`,
+        slices: (libraryLesson.slices || []).map((S: any) => ({
+          ...S,
+          id: `slice-${uidLocal()}`,
+          steps: (S.steps || []).map((st: any) => ({
+            ...st,
+            id: `step-${uidLocal()}`,
+          })),
+        })),
+      };
+
+      // We will append at the end of the current plan's lessons
+      const newIndex = plan.lessons.length;
+
+      // Append to the selected plan
+      setPlans((prev) =>
+        prev.map((p) =>
+          p.id === selectedPlanId ? { ...p, lessons: [...p.lessons, cloned] } : p
+        )
+      );
+
+      // Jump to the new lesson and show Coach Mode
+      setCurrentLessonIndex(newIndex);
+      setTab("coach");
+    }}
+  />
+)}
 
       {/* Tags */}
       {tab === "tags" && (
