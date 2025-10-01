@@ -10,12 +10,12 @@ export default function LibraryPanel({
   lessonsByCourse: LessonsByCourse;
   onAdd: (lessonFromLibrary: Lesson) => void;
 }) {
-  // pick the first available course by default
+  // Default to first available course
   const [course, setCourse] = useState<keyof LessonsByCourse>(
     Object.keys(lessonsByCourse)[0] as keyof LessonsByCourse
   );
 
-  // the lessons for the selected course
+  // Lessons for the selected course
   const courseLessons = useMemo(
     () => lessonsByCourse[course] || [],
     [lessonsByCourse, course]

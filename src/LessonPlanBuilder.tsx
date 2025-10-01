@@ -165,20 +165,32 @@ const seedLesson = (): Lesson => ({
 /* ================= Component ================= */
 
 export default function LessonPlanBuilder() {
-  const [plans, setPlans] = useState<Plan[]>([
-    { id: uid(), name: "Plan 1", date: new Date().toISOString().slice(0, 10), lessons: [seedLesson()] },
-  ]);
-  const [selectedPlanId, setSelectedPlanId] = useState<string>(plans[0].id);
-  const [currentLessonIndex, setCurrentLessonIndex] = useState<number>(0);
-
+  // Student state must be declared before usage
   const [studentList, setStudentList] = useState<Student[]>([
     { id: "s1", name: "Student 1", creditsLeft: 4, startDate: new Date().toISOString().slice(0, 10) },
   ]);
   const [studentId, setStudentId] = useState<string>("s1");
   const [editingStudent, setEditingStudent] = useState(false);
   const [theme, setTheme] = useState<"auto" | "light" | "dark">("light");
-const [tab, setTab] = useState<"coach" | "report" | "library" | "tags">("coach");
+  const [tab, setTab] = useState<"coach" | "report" | "library" | "tags">("coach");
   const [layout, setLayout] = useState<"stacked" | "columns">("stacked");
+
+  // Per-student plans
+  const [plansByStudent, setPlansByStudent] = useState<Record<string, Plan[]>>({
+    s1: [
+      { id: uid(), name: "Plan 1", date: new Date().toISOString().slice(0, 10), lessons: [seedLesson()] },
+    ],
+  });
+
+  // The currently selected student's plans
+  const plans = plansByStudent[studentId] ?? [];
+
+  // Selected plan for current student
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(plans[0]?.id ?? null);
+
+  // Which lesson inside the selected plan is open
+  const [currentLessonIndex, setCurrentLessonIndex] = useState<number>(0);
+// #region THEME EFFECT
 
   useEffect(() => {
     const root = document.documentElement;
@@ -193,8 +205,36 @@ const [tab, setTab] = useState<"coach" | "report" | "library" | "tags">("coach")
       return () => mq.removeEventListener("change", h);
     }
   }, [theme]);
+  // Ensure the selected student always has at least one plan
+useEffect(() => {
+  setPlansByStudent((prev) => {
+    if ((prev[studentId]?.length ?? 0) > 0) return prev;
+    return {
+      ...prev,
+      [studentId]: [
+        { id: uid(), name: "Plan 1", date: new Date().toISOString().slice(0, 10), lessons: [seedLesson()] },
+      ],
+    };
+  });
+}, [studentId]);
 
-  const plan = plans.find((p) => p.id === selectedPlanId)!;
+// Keep selectedPlanId in sync when switching students/plans
+useEffect(() => {
+  if (!selectedPlanId && plans[0]) setSelectedPlanId(plans[0].id);
+}, [plans, selectedPlanId]);
+
+
+
+  const plan = useMemo(() => {
+  const byId = plans.find((p) => p.id === selectedPlanId);
+  return byId ?? plans[0];
+}, [plans, selectedPlanId]);
+
+if (!plan) {
+  // Render nothing until the plan exists (very rare flicker on first student switch)
+  return <div className="p-4 text-sm text-slate-600">Preparing plan…</div>;
+}
+
   const lesson = plan.lessons[currentLessonIndex];
 
   // global timer
@@ -221,11 +261,26 @@ const [tab, setTab] = useState<"coach" | "report" | "library" | "tags">("coach")
   const posBadge = lesson ? COLORS[lesson.position] || "bg-zinc-600 text-white" : "";
   const titleFormula = lesson ? `${lesson.position} pass, (${lesson.reference})` : "";
 
-  function replaceLesson(mut: (l: Lesson) => Lesson) {
-    setPlans((prev) =>
-      prev.map((p) => (p.id !== selectedPlanId ? p : { ...p, lessons: p.lessons.map((L, i) => (i === currentLessonIndex ? mut(L) : L)) }))
-    );
-  }
+ function updateCurrentStudentPlans(mut: (arr: Plan[]) => Plan[]) {
+  setPlansByStudent((prev) => {
+    const curr = prev[studentId] ?? [];
+    return { ...prev, [studentId]: mut(curr) };
+  });
+}
+
+function replaceLesson(mut: (l: Lesson) => Lesson) {
+  updateCurrentStudentPlans((arr) =>
+    arr.map((p) =>
+      p.id !== selectedPlanId
+        ? p
+        : {
+            ...p,
+            lessons: p.lessons.map((L, i) => (i === currentLessonIndex ? mut(L) : L)),
+          }
+    )
+  );
+}
+
   function setLessonField(patch: Partial<Lesson>) { replaceLesson((l) => ({ ...l, ...patch })); }
   function setSlice(idx: number, patch: Partial<Slice>) {
     replaceLesson((l) => { const slices = [...l.slices]; slices[idx] = { ...slices[idx], ...patch }; return { ...l, slices }; });
@@ -479,45 +534,39 @@ const [tab, setTab] = useState<"coach" | "report" | "library" | "tags">("coach")
               </div>
             ))}
           </div>
-        </div>
-      )}
-      {/* Library */}
+  </div>
+)}
+
+{/* Library */}
 {tab === "library" && (
   <LibraryPanel
     lessonsByCourse={LIBRARIES}
-    onAdd={(libraryLesson) => {
+    onAdd={(libraryLesson: Lesson) => {
       const uidLocal = () => Math.random().toString(36).slice(2, 10);
 
-      // Clone with fresh IDs so React keys are unique
-      const cloned = {
+      const cloned: Lesson = {
         ...libraryLesson,
         id: `lesson-${uidLocal()}`,
-        slices: (libraryLesson.slices || []).map((S: any) => ({
+        slices: (libraryLesson.slices ?? []).map((S: Slice) => ({
           ...S,
           id: `slice-${uidLocal()}`,
-          steps: (S.steps || []).map((st: any) => ({
-            ...st,
-            id: `step-${uidLocal()}`,
-          })),
+          steps: (S.steps ?? []).map((st: Step) => ({ ...st, id: `step-${uidLocal()}` })),
         })),
       };
 
-      // We will append at the end of the current plan's lessons
-      const newIndex = plan.lessons.length;
-
-      // Append to the selected plan
-      setPlans((prev) =>
-        prev.map((p) =>
+      setPlansByStudent((prev) => {
+        const studentPlans = prev[studentId] ?? [];
+        const updatedPlans = studentPlans.map((p) =>
           p.id === selectedPlanId ? { ...p, lessons: [...p.lessons, cloned] } : p
-        )
-      );
+        );
+        return { ...prev, [studentId]: updatedPlans };
+      });
 
-      // Jump to the new lesson and show Coach Mode
-      setCurrentLessonIndex(newIndex);
       setTab("coach");
-    }}
+    }}   // ✅ this closes onAdd correctly
   />
 )}
+
 
       {/* Tags */}
       {tab === "tags" && (
